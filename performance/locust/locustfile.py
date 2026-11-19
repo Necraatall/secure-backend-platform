@@ -4,13 +4,14 @@ import os
 import uuid
 from urllib.parse import urlparse
 
-from locust import HttpUser, between, task
+from locust import HttpUser, between, constant_throughput, task
 
 
 class BackendUser(HttpUser):
     """Exercise authenticated API reads and simulated payments."""
 
-    wait_time = between(1, 2)
+    hold_rpm = os.getenv("LOCUST_HOLD_RPM")
+    wait_time = constant_throughput(float(hold_rpm) / 60) if hold_rpm else between(1, 2)
 
     def on_start(self) -> None:
         host = urlparse(self.host or "")
@@ -61,9 +62,7 @@ class BackendUser(HttpUser):
                 response.failure("Invalid JSON response")
                 return
 
-            if not isinstance(data, dict) or not isinstance(
-                data.get("data"), list
-            ):
+            if not isinstance(data, dict) or not isinstance(data.get("data"), list):
                 response.failure("Invalid items response")
 
     @task(2)
@@ -83,9 +82,7 @@ class BackendUser(HttpUser):
             catch_response=True,
         ) as response:
             if response.status_code != 403:
-                response.failure(
-                    f"Expected HTTP 403, got {response.status_code}"
-                )
+                response.failure(f"Expected HTTP 403, got {response.status_code}")
                 return
 
             response.success()
@@ -111,6 +108,4 @@ class BackendUser(HttpUser):
                 return
 
             if status != expected_status:
-                response.failure(
-                    f"Expected {expected_status}, got {status}"
-                )
+                response.failure(f"Expected {expected_status}, got {status}")
