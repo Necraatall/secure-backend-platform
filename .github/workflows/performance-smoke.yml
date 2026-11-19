@@ -1,0 +1,106 @@
+name: Performance Smoke
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+      timezone: "Europe/Prague"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-smoke
+  cancel-in-progress: false
+
+jobs:
+  locust-health:
+    name: Locust Health Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Prepare CI environment
+        run: cp .env.example .env
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.18"
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Start isolated backend
+        run: docker compose up -d --build db backend
+
+      - name: Wait for health-check
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent \
+              http://localhost:8000/api/v1/utils/health-check/ \
+              | grep -qx true; then
+              echo "Backend healthy"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Backend health-check failed"
+          exit 1
+
+      - name: Run Locust smoke
+        run: |
+          mkdir -p performance/reports
+          uv run --locked locust \
+            -f performance/locust/smoke.py \
+            --headless \
+            --host http://localhost:8000 \
+            --users 1 \
+            --spawn-rate 1 \
+            --run-time 10s \
+            --only-summary \
+            --exit-code-on-error 1 \
+            --csv performance/reports/health-smoke
+
+      - name: Validate Locust results
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path("performance/reports/health-smoke_stats.csv")
+          with path.open(newline="") as file:
+              rows = list(csv.DictReader(file))
+
+          summary = next(
+              (row for row in rows if row["Name"] == "Aggregated"),
+              None,
+          )
+          if summary is None:
+              raise SystemExit("FAIL: Missing aggregated statistics")
+
+          requests = int(summary["Request Count"])
+          failures = int(summary["Failure Count"])
+
+          print(f"Requests: {requests}, failures: {failures}")
+          if requests < 1 or failures != 0:
+              raise SystemExit("FAIL: Locust smoke")
+          PY
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: locust-health-smoke
+          path: performance/reports/health-smoke*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v --remove-orphans
