@@ -27,6 +27,8 @@ jobs:
       with:
         fetch-depth: 2
         persist-credentials: false
+    - name: Prepare CI environment
+      run: cp .env.example .env
     # For pull requests it's not necessary to checkout the code but for the main branch it is
     - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
       id: filter
@@ -54,6 +56,8 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    - name: Prepare CI environment
+      run: cp .env.example .env
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
         bun-version: 1.3.12
@@ -103,6 +107,8 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    - name: Prepare CI environment
+      run: cp .env.example .env
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
         bun-version: 1.3.12

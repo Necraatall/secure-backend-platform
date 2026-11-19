@@ -13,3 +13,6 @@ backend/app/frontend/
 # Python bytecode
 __pycache__/
 *.py[cod]
+
+# Local secrets
+/.env
