@@ -136,3 +136,61 @@ def bell_request_time(config: LoadConfig, request_number: int) -> float | None:
             high = middle
 
     return high
+
+
+def hold_bell_expected_requests(
+    config: LoadConfig,
+    elapsed_seconds: float,
+) -> float:
+    """Calculate cumulative requests for baseline Hold plus Bell."""
+    from dataclasses import replace
+
+    config.validate()
+
+    if config.profile != Profile.HOLD_BELL:
+        raise ValueError("Hold + Bell profile required")
+
+    if config.target_rpm <= config.baseline_rpm:
+        raise ValueError("target_rpm must exceed baseline_rpm")
+
+    duration = config.ramp_up_seconds + config.peak_seconds + config.ramp_down_seconds
+    elapsed = min(max(elapsed_seconds, 0.0), duration)
+
+    baseline_requests = config.baseline_rps * elapsed
+
+    bell_config = replace(
+        config,
+        profile=Profile.BELL,
+        target_rpm=config.target_rpm - config.baseline_rpm,
+    )
+
+    return baseline_requests + bell_expected_requests(
+        bell_config,
+        elapsed,
+    )
+
+
+def hold_bell_request_time(
+    config: LoadConfig,
+    request_number: int,
+) -> float | None:
+    """Return the scheduled time of a Hold + Bell request."""
+    if request_number < 1:
+        raise ValueError("request_number must be positive")
+
+    duration = config.ramp_up_seconds + config.peak_seconds + config.ramp_down_seconds
+
+    if hold_bell_expected_requests(config, duration) < request_number:
+        return None
+
+    low, high = 0.0, float(duration)
+
+    for _ in range(50):
+        middle = (low + high) / 2
+
+        if hold_bell_expected_requests(config, middle) < request_number:
+            low = middle
+        else:
+            high = middle
+
+    return high
