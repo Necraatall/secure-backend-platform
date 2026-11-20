@@ -8,6 +8,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+from config import LoadConfig, Profile
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run Locust Hold test")
@@ -16,13 +18,16 @@ def main() -> int:
     parser.add_argument("--tolerance-pct", type=float, default=20)
     args = parser.parse_args()
 
-    if not 0 < args.rpm <= 3000:
-        parser.error("--rpm must be between 0 and 3000")
-    if not 10 <= args.duration <= 3600:
-        parser.error("--duration must be between 10 and 3600 seconds")
-
-    if not 0 <= args.tolerance_pct <= 50:
-        parser.error("--tolerance-pct must be between 0 and 50")
+    config = LoadConfig(
+        profile=Profile.HOLD,
+        target_rpm=args.rpm,
+        duration_seconds=args.duration,
+        tolerance_pct=args.tolerance_pct,
+    )
+    try:
+        config.validate()
+    except ValueError as exc:
+        parser.error(str(exc))
 
     env = os.environ.copy()
     env.update(
@@ -59,6 +64,8 @@ def main() -> int:
         "1",
         "--csv",
         str(prefix),
+        "--html",
+        str(reports / "hold.html"),
     ]
 
     result = subprocess.run(command, env=env, check=False)
@@ -79,7 +86,7 @@ def main() -> int:
     failures = int(summary["Failure Count"])
     actual_rps = float(summary["Requests/s"])
 
-    print(f"Target: {args.rpm:.1f} tasks/min")
+    print(f"Target: {args.rpm:.1f} HTTP requests/min (excluding login)")
     print(f"Actual: {actual_rps:.2f} HTTP requests/s")
     print(f"Requests: {requests}, failures: {failures}")
 
@@ -90,8 +97,29 @@ def main() -> int:
     )
     minimum = args.rpm * args.duration / 60 * (1 - args.tolerance_pct / 100)
 
-    print(f"Completed tasks: {completed_tasks}")
+    print(f"Measured HTTP requests (excluding login): {completed_tasks}")
     print(f"Minimum required: {minimum:.1f}")
+
+    history_path = Path(f"{prefix}_stats_history.csv")
+    with history_path.open(newline="") as file:
+        history = [row for row in csv.DictReader(file) if row["Name"] == "Aggregated"]
+
+    if len(history) >= 2:
+        start = int(history[0]["Timestamp"])
+        buckets: dict[int, int] = {}
+
+        for previous, current in zip(history, history[1:]):
+            elapsed = int(current["Timestamp"]) - start
+            bucket = max(0, (elapsed - 1) // 10)
+            count = int(current["Total Request Count"]) - int(
+                previous["Total Request Count"]
+            )
+            buckets[bucket] = buckets.get(bucket, 0) + count
+
+        print("HTTP requests by 10-second interval:")
+        for bucket, count in sorted(buckets.items()):
+            begin = bucket * 10
+            print(f"  {begin:02d}-{begin + 10:02d}s: {count}")
 
     if requests == 0 or failures or completed_tasks < minimum:
         print("Hold result: FAIL")
