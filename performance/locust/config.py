@@ -64,3 +64,75 @@ class LoadConfig:
     def baseline_rps(self) -> float:
         """Convert baseline HTTP rate to requests per second."""
         return self.baseline_rpm / 60
+
+
+def bell_target_rpm(config: LoadConfig, elapsed_seconds: float) -> float:
+    """Return the target request rate for a Bell profile."""
+    config.validate()
+
+    if config.profile != Profile.BELL:
+        raise ValueError("Bell profile required")
+
+    ramp_up = config.ramp_up_seconds
+    peak_end = ramp_up + config.peak_seconds
+    end = peak_end + config.ramp_down_seconds
+
+    if elapsed_seconds < 0 or elapsed_seconds >= end:
+        return 0.0
+    if elapsed_seconds < ramp_up:
+        return config.target_rpm * elapsed_seconds / ramp_up
+    if elapsed_seconds < peak_end:
+        return config.target_rpm
+
+    return config.target_rpm * (end - elapsed_seconds) / config.ramp_down_seconds
+
+
+def bell_expected_requests(config: LoadConfig, elapsed_seconds: float) -> float:
+    """Calculate cumulative target requests under the Bell profile."""
+    config.validate()
+
+    if config.profile != Profile.BELL:
+        raise ValueError("Bell profile required")
+
+    up = config.ramp_up_seconds
+    peak = config.peak_seconds
+    down = config.ramp_down_seconds
+    rate = config.target_rpm / 60
+    t = max(0.0, elapsed_seconds)
+
+    if t <= up:
+        return rate * t * t / (2 * up)
+
+    total = rate * up / 2
+    t -= up
+
+    if t <= peak:
+        return total + rate * t
+
+    total += rate * peak
+    t = min(t - peak, down)
+
+    return total + rate * (t - t * t / (2 * down))
+
+
+def bell_request_time(config: LoadConfig, request_number: int) -> float | None:
+    """Return scheduled time for a request, or None after the Bell ends."""
+    if request_number < 1:
+        raise ValueError("request_number must be positive")
+
+    duration = config.ramp_up_seconds + config.peak_seconds + config.ramp_down_seconds
+
+    if bell_expected_requests(config, duration) < request_number:
+        return None
+
+    low, high = 0.0, float(duration)
+
+    for _ in range(50):
+        middle = (low + high) / 2
+
+        if bell_expected_requests(config, middle) < request_number:
+            low = middle
+        else:
+            high = middle
+
+    return high
