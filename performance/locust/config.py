@@ -194,3 +194,61 @@ def hold_bell_request_time(
             high = middle
 
     return high
+
+
+def recovery_expected_requests(
+    config: LoadConfig,
+    elapsed_seconds: float,
+) -> float:
+    """Calculate cumulative requests across baseline, spike and recovery."""
+    config.validate()
+
+    if config.profile != Profile.RECOVERY:
+        raise ValueError("Recovery profile required")
+
+    if config.target_rpm <= config.baseline_rpm:
+        raise ValueError("target_rpm must exceed baseline_rpm")
+
+    if not 10 <= config.duration_seconds <= 3600:
+        raise ValueError("duration_seconds must be 10..3600")
+
+    baseline_end = config.duration_seconds
+    spike_end = baseline_end + config.peak_seconds
+    end = spike_end + config.recovery_seconds
+    elapsed = min(max(elapsed_seconds, 0.0), end)
+
+    baseline_time = min(elapsed, baseline_end)
+    spike_time = min(max(elapsed - baseline_end, 0.0), config.peak_seconds)
+    recovery_time = max(elapsed - spike_end, 0.0)
+
+    return (
+        baseline_time * config.baseline_rps
+        + spike_time * config.target_rps
+        + recovery_time * config.baseline_rps
+    )
+
+
+def recovery_request_time(
+    config: LoadConfig,
+    request_number: int,
+) -> float | None:
+    """Return the scheduled time of a Recovery request."""
+    if request_number < 1:
+        raise ValueError("request_number must be positive")
+
+    duration = config.duration_seconds + config.peak_seconds + config.recovery_seconds
+
+    if recovery_expected_requests(config, duration) < request_number:
+        return None
+
+    low, high = 0.0, float(duration)
+
+    for _ in range(50):
+        middle = (low + high) / 2
+
+        if recovery_expected_requests(config, middle) < request_number:
+            low = middle
+        else:
+            high = middle
+
+    return high
