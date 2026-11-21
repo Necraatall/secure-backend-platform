@@ -183,6 +183,8 @@ jobs:
         env:
           DT_API_TOKEN: ${{ secrets.DT_API_TOKEN }}
           DT_OTLP_TRACES_ENDPOINT: ${{ secrets.DT_OTLP_TRACES_ENDPOINT }}
+          DT_RUN_ID: ${{ github.run_id }}
+          DT_ENVIRONMENT: github-actions
         run: |
           if [[ -n "$DT_API_TOKEN" && -n "$DT_OTLP_TRACES_ENDPOINT" ]]; then
             export DT_TRACING_ENABLED=true
