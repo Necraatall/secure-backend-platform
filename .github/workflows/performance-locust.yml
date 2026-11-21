@@ -1,8 +1,14 @@
 name: Performance Locust Manual
+run-name: Locust ${{ inputs.profile }} ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: "Unique UI request identifier"
+        type: string
+        required: false
+        default: ""
       profile:
         description: "Load profile"
         type: choice
