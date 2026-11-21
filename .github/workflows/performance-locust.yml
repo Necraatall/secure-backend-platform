@@ -1,0 +1,277 @@
+name: Performance Locust Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Load profile"
+        type: choice
+        required: true
+        default: hold
+        options:
+          - hold
+          - bell
+          - hold-bell
+          - recovery
+
+      rpm:
+        description: "Target/peak requests per minute"
+        type: string
+        default: "120"
+        required: true
+
+      baseline_rpm:
+        description: "Baseline requests per minute"
+        type: string
+        default: "60"
+        required: true
+
+      duration:
+        description: "Hold duration / Recovery baseline seconds"
+        type: string
+        default: "30"
+        required: true
+
+      ramp_up:
+        description: "Bell ramp-up seconds"
+        type: string
+        default: "10"
+        required: true
+
+      peak:
+        description: "Bell peak seconds"
+        type: string
+        default: "10"
+        required: true
+
+      ramp_down:
+        description: "Bell ramp-down seconds"
+        type: string
+        default: "10"
+        required: true
+
+      recovery:
+        description: "Recovery phase seconds"
+        type: string
+        default: "10"
+        required: true
+
+      tolerance_pct:
+        description: "Allowed request count deviation (%)"
+        type: string
+        default: "20"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-locust-manual
+  cancel-in-progress: false
+
+jobs:
+  performance:
+    name: Locust ${{ inputs.profile }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      PERF_PROFILE: ${{ inputs.profile }}
+      PERF_RPM: ${{ inputs.rpm }}
+      PERF_BASELINE_RPM: ${{ inputs.baseline_rpm }}
+      PERF_DURATION: ${{ inputs.duration }}
+      PERF_RAMP_UP: ${{ inputs.ramp_up }}
+      PERF_PEAK: ${{ inputs.peak }}
+      PERF_RAMP_DOWN: ${{ inputs.ramp_down }}
+      PERF_RECOVERY: ${{ inputs.recovery }}
+      PERF_TOLERANCE: ${{ inputs.tolerance_pct }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Prepare CI environment
+        run: cp .env.example .env
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: "0.11.18"
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Validate test configuration
+        run: |
+          uv run --locked python - <<'PY'
+          import os
+
+          profile = os.environ["PERF_PROFILE"]
+
+          phases = {
+              "hold": ["PERF_DURATION"],
+              "bell": [
+                  "PERF_RAMP_UP",
+                  "PERF_PEAK",
+                  "PERF_RAMP_DOWN",
+              ],
+              "hold-bell": [
+                  "PERF_RAMP_UP",
+                  "PERF_PEAK",
+                  "PERF_RAMP_DOWN",
+              ],
+              "recovery": [
+                  "PERF_DURATION",
+                  "PERF_PEAK",
+                  "PERF_RECOVERY",
+              ],
+          }
+
+          if profile not in phases:
+              raise SystemExit("Invalid profile")
+
+          values = []
+          for name in phases[profile]:
+              value = int(os.environ[name])
+              if value < 1:
+                  raise SystemExit(f"Invalid duration: {name}")
+              values.append(value)
+
+          duration = sum(values)
+
+          if profile == "hold" and duration < 10:
+              raise SystemExit("Hold requires at least 10 seconds")
+
+          if profile == "recovery":
+              if values[0] < 10 or values[2] < 10:
+                  raise SystemExit(
+                      "Recovery baseline and recovery require >=10s"
+                  )
+
+          if duration > 300:
+              raise SystemExit("Maximum test duration is 300 seconds")
+
+          rpm = float(os.environ["PERF_RPM"])
+          baseline = float(os.environ["PERF_BASELINE_RPM"])
+          tolerance = float(os.environ["PERF_TOLERANCE"])
+
+          if not 0 < rpm <= 3000:
+              raise SystemExit("Invalid target RPM")
+
+          if profile in {"hold-bell", "recovery"}:
+              if not 0 < baseline < rpm:
+                  raise SystemExit("Invalid baseline RPM")
+
+          if not 0 <= tolerance <= 50:
+              raise SystemExit("Invalid tolerance")
+
+          print(f"Profile: {profile}")
+          print(f"Duration: {duration}s")
+          print(f"Target: {rpm} req/min")
+          print("Configuration: PASS")
+          PY
+
+      - name: Start isolated backend
+        run: docker compose up -d --build db backend
+
+      - name: Wait for health-check
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent \
+              http://localhost:8000/api/v1/utils/health-check/ \
+              | grep -qx true; then
+              echo "Backend healthy"
+              exit 0
+            fi
+            sleep 3
+          done
+
+          echo "Backend health-check failed"
+          exit 1
+
+      - name: Verify API authentication
+        run: |
+          uv run --locked python - <<'PY'
+          import httpx
+          from dotenv import dotenv_values
+
+          env = dotenv_values(".env")
+
+          response = httpx.post(
+              "http://127.0.0.1:8000/api/v1/login/access-token",
+              data={
+                  "username": env["FIRST_SUPERUSER"],
+                  "password": env["FIRST_SUPERUSER_PASSWORD"],
+              },
+              timeout=15,
+          )
+
+          print(f"Login HTTP: {response.status_code}")
+          response.raise_for_status()
+          print("Authentication: PASS")
+          PY
+
+      - name: Run Locust profile
+        run: |
+          uv run --locked python - <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          profile = os.environ["PERF_PROFILE"]
+
+          common = [
+              "--rpm", os.environ["PERF_RPM"],
+              "--tolerance-pct", os.environ["PERF_TOLERANCE"],
+          ]
+
+          options = {
+              "hold": [
+                  "--duration", os.environ["PERF_DURATION"],
+              ],
+              "bell": [
+                  "--ramp-up", os.environ["PERF_RAMP_UP"],
+                  "--peak", os.environ["PERF_PEAK"],
+                  "--ramp-down", os.environ["PERF_RAMP_DOWN"],
+              ],
+              "hold-bell": [
+                  "--baseline-rpm", os.environ["PERF_BASELINE_RPM"],
+                  "--ramp-up", os.environ["PERF_RAMP_UP"],
+                  "--peak", os.environ["PERF_PEAK"],
+                  "--ramp-down", os.environ["PERF_RAMP_DOWN"],
+              ],
+              "recovery": [
+                  "--baseline-rpm", os.environ["PERF_BASELINE_RPM"],
+                  "--baseline", os.environ["PERF_DURATION"],
+                  "--spike", os.environ["PERF_PEAK"],
+                  "--recovery", os.environ["PERF_RECOVERY"],
+              ],
+          }
+
+          command = [
+              sys.executable,
+              "performance/locust/run.py",
+              profile,
+              *common,
+              *options[profile],
+          ]
+
+          print(f"Running Locust profile: {profile}", flush=True)
+          result = subprocess.run(command, check=False)
+          raise SystemExit(result.returncode)
+          PY
+
+      - name: Upload Locust reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: locust-${{ inputs.profile }}-${{ github.run_id }}
+          path: performance/reports/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v --remove-orphans
