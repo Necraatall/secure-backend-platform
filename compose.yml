@@ -66,6 +66,8 @@ services:
       DT_TRACING_ENABLED: ${DT_TRACING_ENABLED:-false}
       DT_OTLP_TRACES_ENDPOINT: ${DT_OTLP_TRACES_ENDPOINT:-}
       DT_API_TOKEN: ${DT_API_TOKEN:-}
+      DT_RUN_ID: ${DT_RUN_ID:-}
+      DT_ENVIRONMENT: ${DT_ENVIRONMENT:-}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
