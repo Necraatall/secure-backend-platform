@@ -1,5 +1,18 @@
 # Release Notes
 
+## Secure Backend Platform — Locust + Dynatrace PoC (2026-11-21)
+
+### Verified
+- Four independent GitHub Actions Locust profiles (**Hold, Bell, Hold + Bell, Recovery**) successfully executed against isolated FastAPI/PostgreSQL; HTML/CSV report artifact upload and cleanup completed.
+- GitHub workflow accepts profile parameters and request identifiers for runs triggered from the local configuration UI. Local UI dispatch and reporting a GitHub `success` were observed; local `performance/locust/ui.py` has not yet been committed to `main`.
+- Optional FastAPI OpenTelemetry exporter for Dynatrace is implemented; **receipt of traces in Dynatrace remains NOT VERIFIED**.
+
+### Scope limits / deferred
+- **Live Locust Web UI on GitHub-hosted CI is intentionally NOT IMPLEMENTED and NOT part of this PoC.** Keep the existing headless GitHub Actions workflow; use workflow status and saved HTML/CSV reports.
+- During later cloud deployment of the full application, implement authenticated remote Locust live UI, Start/Run/Stop lifecycle and IaC as described in [Issue #22](https://github.com/Necraatall/secure-backend-platform/issues/22) and [Issue #21](https://github.com/Necraatall/secure-backend-platform/issues/21).
+- Full API-scenario coverage, a clean-clone UI verification and accepted Dynatrace telemetry need separate evidence before declaring the entire PoC done. See [PoC status and TODO](docs/performance/LOCUST_DYNATRACE_POC.md) and [MVP tracking #20](https://github.com/Necraatall/secure-backend-platform/issues/20).
+
+
 ## Latest Changes
 
 ### Docs
