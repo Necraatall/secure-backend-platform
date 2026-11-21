@@ -66,7 +66,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: performance-locust-manual
+  group: performance-locust-${{ inputs.profile }}
   cancel-in-progress: false
 
 jobs:
