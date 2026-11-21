@@ -27,9 +27,13 @@ def configure_tracing(app: FastAPI) -> None:
     if not endpoint.startswith("https://"):
         raise ValueError("Dynatrace OTLP endpoint must use HTTPS")
 
-    resource = Resource.create(
-        {"service.name": "secure-backend-platform"}
-    )
+    attributes = {"service.name": "secure-backend-platform"}
+    if environment := os.getenv("DT_ENVIRONMENT"):
+        attributes["deployment.environment.name"] = environment
+    if run_id := os.getenv("DT_RUN_ID"):
+        attributes["ci.github.run_id"] = run_id
+
+    resource = Resource.create(attributes)
     provider = TracerProvider(resource=resource)
 
     exporter = OTLPSpanExporter(
