@@ -11,7 +11,7 @@ Datum záznamu: **2026-11-21**. Projekt **Secure Backend Platform** je širší 
 - Zátěžové testy jsou určeny pro **autorizované izolované prostředí a syntetická data**; workflow není veřejně dostupným cílem pro zátěž.
 
 ## Co nebylo prokázáno / není dokončeno
-- **Dynatrace lokálně: VERIFIED (uživatelský screenshot 2026-11-21).** Distributed Tracing ukazuje `secure-backend-platform`, `GET /api/v1/items/` s HTTP 401 a healthcheck s HTTP 200; jde o reálně přijaté trace. **GitHub → Dynatrace: funkčně pozorováno, původ konkrétních trace ještě není strojově jednoznačně korelován.** Workflow od commitu `3a0d9df` předává `DT_API_TOKEN` a `DT_OTLP_TRACES_ENDPOINT` z GitHub Secrets a zapíná tracing při startu izolovaného backendu. Uživatel ohlásil `success` GitHub testu; ve stejném období viděl v Dynatrace login, items a payments. Pro průkaznou atribuci přidat `github.run_id`/identifikátor testu jako resource/span atribut a ověřit jej přímo v trasách. Samotné `success` nedokazuje ingest Dynatrace.
+- **Dynatrace lokálně: VERIFIED (uživatelský screenshot 2026-11-21).** Distributed Tracing ukazuje `secure-backend-platform`, `GET /api/v1/items/` s HTTP 401 a healthcheck s HTTP 200; jde o reálně přijaté trace. **GitHub → Dynatrace: VERIFIED, korelace run ID potvrzena 2026-11-22.** Workflow od commitu `3a0d9df` předává `DT_API_TOKEN` a `DT_OTLP_TRACES_ENDPOINT` z GitHub Secrets a zapíná tracing při startu izolovaného backendu. Uživatel ohlásil `success` GitHub testu; ve stejném období viděl v Dynatrace login, items a payments. Od commitu `b293b4c` backend do OTLP resource přidává `ci.github.run_id` a `deployment.environment.name`. Při [běhu 44960706592](https://github.com/Necraatall/secure-backend-platform/actions/runs/44960706592) na commitu `f8dbadd` prošly všechny job kroky včetně Locust, uploadu reportů a cleanupu; Dynatrace Explorer s filtrem `ci.github.run_id = 44960706592` zobrazil 15 transakcí (uživatelský screenshot v konverzaci: login HTTP 200, items HTTP 200, payments HTTP 200 a healthcheck). Tento screenshot zatím není archivován v repozitáři. **Pozor:** 15 tras není úplný důkaz pokrytí všech negativních scénářů.
 - **API coverage při krátkém Locust testu není garantováno**: tasky se vybírají váženě/náhodně. Pro úplné integrační ověření je nutný důkaz ze statistik pro přihlášení, načtení items, úspěšnou platbu, zamítnutou platbu a neplatný token.
 - **Live Locust Web UI pro Run GitHub není součást současného PoC.** GitHub-hosted runner je dočasný, spouští `--headless`, jeho port 8089 není veřejně přístupný. Screenshot lokálního Web UI není důkaz vzdáleného živého dashboardu.
 - Lokální konfigurační UI zatím neposkytuje živé vzdálené metriky Locustu a grafy naměřené z GitHub běhu v jednom panelu; odkazuje na GitHub Actions a následné reporty.
@@ -63,11 +63,11 @@ Konfigurační UI
 
 | Mechanismus | Účel | Frekvence a životnost |
 | --- | --- | --- |
-| GitHub krok \`Wait for health-check\` | Po startu ověří připravenost backendu před inicializací/testem | Opakuje po 3 s, nejvýše 60 pokusů; po úspěchu končí |
-| Docker Compose \`backend.healthcheck\` | Průběžná kontrola stavu **běžícího kontejneru** | V \`compose.yml\` interval 10 s, až do zastavení kontejneru |
+| GitHub krok `Wait for health-check` | Po startu ověří připravenost backendu před inicializací/testem | Opakuje po 3 s, nejvýše 60 pokusů; po úspěchu končí |
+| Docker Compose `backend.healthcheck` | Průběžná kontrola stavu **běžícího kontejneru** | V `compose.yml` interval 10 s, až do zastavení kontejneru |
 | Dynatrace tracing | Diagnostika výkonu a požadavků aplikace | Zachycuje instrumentované requesty včetně healthchecků, nejsou-li filtrovány |
 
-Každých 10 s znamená přibližně **6 požadavků/min, 360/h, 8 640/den** na jeden nepřetržitě běžící kontejner. U jednoduchého endpointu bývá aplikační zátěž malá, ale množství trace zvyšuje šum a může spotřebovávat ingestní kvótu. Healthcheck běží i **lokálně**, není důkazem trvale spuštěné GitHub pipeline. Po úspěšném GitHub jobu je předepsán \`docker compose down -v --remove-orphans\`; lokální Docker kontejnery jsou nezávislé. Změna intervalu na 60 s či vyloučení healthchecků z OTLP je **návrh, nikoli provedená změna**. Nepovažovat samotné healthchecky za výkonnostní Locust zátěž.
+Každých 10 s znamená přibližně **6 požadavků/min, 360/h, 8 640/den** na jeden nepřetržitě běžící kontejner. U jednoduchého endpointu bývá aplikační zátěž malá, ale množství trace zvyšuje šum a může spotřebovávat ingestní kvótu. Healthcheck běží i **lokálně**, není důkazem trvale spuštěné GitHub pipeline. Po úspěšném GitHub jobu je předepsán `docker compose down -v --remove-orphans`; lokální Docker kontejnery jsou nezávislé. Změna intervalu na 60 s či vyloučení healthchecků z OTLP je **návrh, nikoli provedená změna**. Nepovažovat samotné healthchecky za výkonnostní Locust zátěž.
 
 ### Rozhodnutí pro technický pohovor (Architecture Decision Record)
 
@@ -81,15 +81,15 @@ Každých 10 s znamená přibližně **6 požadavků/min, 360/h, 8 640/den** na 
 | Stop/cleanup po testu | Omezit náklady, nezanechávat testovací služby a data | Prostředí nelze opakovaně využívat mezi joby | Při zavedení Start/Run/Stop s TTL a rozpočtovým limitem |
 | Ponechat Docker healthcheck odděleně od startup checku | Jednorázová *readiness* a průběžná *health* řeší odlišné otázky | Duplicitní volání, šum v trace při 10s intervalu | Upravit interval / trace filtering po měření provozu |
 
-**Jak rozhodnutí obhájit:** Nejprve prokázat opakovatelné E2E zátěžové běhy, ukládat artefakty a měřit skutečný backend v Dynatrace. Teprve potom investovat do trvale běžícího testovacího prostředí. Kritéria úspěchu jsou oddělená: \`GitHub success\` = testovací workflow prošlo; \`Dynatrace trace\` = dorazila telemetrie; \`run_id\` ve spanu = dohledatelný původ konkrétního testu. Tyto důkazy se nesmějí zaměňovat.
+**Jak rozhodnutí obhájit:** Nejprve prokázat opakovatelné E2E zátěžové běhy, ukládat artefakty a měřit skutečný backend v Dynatrace. Teprve potom investovat do trvale běžícího testovacího prostředí. Kritéria úspěchu jsou oddělená: `GitHub success` = testovací workflow prošlo; `Dynatrace trace` = dorazila telemetrie; `run_id` ve spanu = dohledatelný původ konkrétního testu. Tyto důkazy se nesmějí zaměňovat.
 
 ### Rizika a provozní důsledky
 
 - **Náklady:** nový runner a opakovaný build znamenají čas CI; trvalá instance by naopak mohla vytvářet cloudové náklady mimo testy.
 - **Zkreslení metrik:** zahrnutí zdravotních kontrol do grafů requestů uměle zvýší objem provozu; testovací RPS/RPM se vyhodnocují primárně z Locust reportu.
 - **Bezpečnost:** token držet v Secrets, nikoli v artefaktech; v budoucí cloudové instanci vyžadovat přístupová pravidla a limit zátěže.
-- **Identifikace běhu:** stejný \`service.name=secure-backend-platform\` pro lokální i GitHub backend znamená, že samotný seznam transakcí nerozlišuje zdroj. Potřebujeme \`run_id\` a prostředí jako atributy trace.
-- **Úklid:** \`if: always()\` není absolutní garance při selhání runneru; u persistentního prostředí navíc TTL/failsafe ukončení.
+- **Identifikace běhu:** stejný `service.name=secure-backend-platform` pro lokální i GitHub backend znamená, že samotný seznam transakcí nerozlišuje zdroj. Potřebujeme `run_id` a prostředí jako atributy trace.
+- **Úklid:** `if: always()` není absolutní garance při selhání runneru; u persistentního prostředí navíc TTL/failsafe ukončení.
 
 ## TODO — odloženo do cloudového nasazení
 Sledovat v [Issue #22](https://github.com/Necraatall/secure-backend-platform/issues/22), spolu s architekturou/TCO/IaC v [Issue #21](https://github.com/Necraatall/secure-backend-platform/issues/21):
@@ -101,11 +101,13 @@ Sledovat v [Issue #22](https://github.com/Necraatall/secure-backend-platform/iss
 - [ ] Srovnat náklady AWS, GCP a levnějších/free variant, provozní limity a bezpečnost; infrastrukturu navrhnout jako IaC bez předem vynuceného frameworku.
 - [ ] Doložit skutečné end-to-end ověření po nasazení.
 
-**Rozhodnutí 2026-11-21:** GitHub Actions ponechat v současném headless režimu. Ve stávajícím PoC nebudovat veřejný tunel ani nový vzdálený Locust dashboard. Dynatrace ingest byl následně lokálně ověřen; přesnou atribuci vzdálených trace k run ID ještě doplnit.
+**Rozhodnutí 2026-11-21; aktualizace 2026-11-22:** GitHub Actions ponechat v současném headless režimu. Ve stávajícím PoC nebudovat veřejný tunel ani nový vzdálený Locust dashboard. Dynatrace ingest byl ověřen lokálně i u GitHub Actions runu s korelací `ci.github.run_id`.
 
 ## Pro úplné uzavření současného PoC
 - [x] Prokázat lokální přijetí spanů v Dynatrace (uživatelský screenshot: service, čas a endpointy; bez tokenů).
-- [ ] Doplnit jednoznačnou korelaci GitHub run ID s Dynatrace trace a archivovat důkaz.
+- [x] Ověřit korelaci GitHub run ID s Dynatrace trace: `44960706592`, 15 transakcí, doloženo uživatelským screenshotem (není archivován v repozitáři).
+- [ ] Uložit screenshot důkazu do dlouhodobé dokumentace, pokud to bude potřeba pro externí audit.
 - [ ] Doložit reprezentativní Locust report a reálné pokrytí zamýšlených API operací.
-- [ ] Commitnout a ověřit lokální `ui.py`, je-li součástí předávaného PoC, včetně základních testů a korektních stavů PASS/FAIL.
+- [x] Commitnout `performance/locust/ui.py` do `main` (commit `f8dbadd`); syntaktická kontrola `py_compile` PASS.
+- [ ] Ověřit UI v čistém checkoutu včetně funkčního dispatch tlačítka a korektních stavů PASS/FAIL; nový běh `44960706592` byl vyvolán přímo přes `gh workflow run`, nikoliv přes UI.
 - [ ] Ověřit čistý checkout a aktualizovat výsledek v Issue #20 včetně SHA.
