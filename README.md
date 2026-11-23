@@ -86,6 +86,8 @@ This includes the local FastAPI and Vite workflow, Docker Compose services, `.en
 
 ## Locust + Dynatrace PoC
 
+**[Quickstart: local UI, Docker backend, GitHub Actions, Dynatrace, demo and troubleshooting](docs/performance/QUICKSTART.md)**.
+
 Current verification status, known limitations, and deferred cloud live dashboard work: [Locust + Dynatrace PoC status and TODO](docs/performance/LOCUST_DYNATRACE_POC.md). Hosted real-time Locust UI is deferred to cloud deployment ([Issue #22](https://github.com/Necraatall/secure-backend-platform/issues/22)); the existing headless GitHub Actions workflow remains unchanged.
 
 ## Release Notes
